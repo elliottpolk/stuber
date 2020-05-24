@@ -60,6 +60,9 @@ var (
 )
 
 func main() {
+	// force debug output
+	log.SetLevel(log.DebugLevel)
+
 	ct, err := strconv.ParseInt(compiled, 0, 0)
 	if err != nil {
 		panic(err)
@@ -67,7 +70,7 @@ func main() {
 
 	app := cli.App{
 		Name:        "stuber",
-		Description: "Stuber /st(y)o͞o·ber/ is a configurable stubbing tool meant to provide mocked stub services, typically for testing.",
+		Description: "Stuber /st(y)o͞o·ber/ is a configurable stubbing tool meant to provide mocked stub services, typically for testing 🧪",
 		Copyright:   fmt.Sprintf("Copyright © 2018-%s Elliott Polk", time.Now().Format("2006")),
 		Version:     version,
 		Compiled:    time.Unix(ct, -1),
