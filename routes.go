@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/elliottpolk/stuber/internal/respond"
+	"git.platform.manulife.io/gwam/stuber/internal/respond"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"

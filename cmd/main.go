@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/elliottpolk/stuber"
+	"git.platform.manulife.io/gwam/stuber"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	cli "github.com/urfave/cli/v2"

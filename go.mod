@@ -1,4 +1,4 @@
-module github.com/elliottpolk/stuber
+module git.platform.manulife.io/gwam/stuber
 
 go 1.14
 
