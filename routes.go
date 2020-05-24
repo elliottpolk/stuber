@@ -2,10 +2,12 @@ package stuber
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"net/url"
 	"path/filepath"
+	"strings"
 
 	"github.com/elliottpolk/stuber/internal/respond"
 
@@ -13,28 +15,6 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 )
-
-func data(t, d string) (interface{}, error) {
-	switch t {
-	case "data.array":
-		a := make([]interface{}, 0)
-		if err := json.Unmarshal([]byte(d), &a); err != nil {
-			return nil, err
-		}
-
-		return a, nil
-
-	case "data.object":
-		m := map[string]interface{}{}
-		if err := json.Unmarshal([]byte(d), &m); err != nil {
-			return nil, err
-		}
-
-		return m, nil
-	}
-
-	return nil, errors.New("unsupported type")
-}
 
 func handler(d, f string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -46,110 +26,102 @@ func handler(d, f string) http.HandlerFunc {
 			return
 		}
 
-		stubs := gjson.Get(string(in), "stubs").Array()
+		stubs := gjson.Get(string(in), fmt.Sprintf(`stubs.#(request.method=="%s")#`, r.Method)).Array()
+		if len(stubs) < 1 {
+			respond.MethodNotAllowed(w)
+			return
+		}
+
+		reqb, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			respond.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+
+		qparams := r.URL.Query()
+
 		for _, stub := range stubs {
-			m := stub.Get("request.method").String()
-			if r.Method != m {
-				continue
-			}
 
-			if stub.Get("response.type").String() == "error" {
-				respond.Error(w, int(stub.Get("response.error.code").Int()), stub.Get("response.error.message").String())
-				return
-			}
+			var (
+				name = stub.Get("name").String()
 
-			reqd := stub.Get("request.data")
+				reqd  = stub.Get("request.payload")
+				respd = stub.Get("response.payload")
+			)
 
 			// handle empty request data
 			if !reqd.Exists() {
-				if len(r.URL.Query().Encode()) > 0 {
+				// this expects an empty request yet the caller send over a payload
+				if len(qparams.Encode()) > 0 || len(reqb) > 0 {
 					respond.Error(w, http.StatusBadRequest, "invalid request")
 					return
 				}
 
-				sd, err := data(stub.Get("response.type").String(), stub.Get("response.data").String())
-				if err != nil {
-					respond.Error(w, http.StatusInternalServerError, err.Error())
+				// respond with the configured error payload and exit
+				if stub.Get("response.type").String() == "error" {
+					respond.Error(w, int(respd.Get("code").Int()), respd.Get("message").String())
 					return
 				}
 
-				log.Debugf("responding for data set %s", stub.Get("name").String())
-				respond.Json(w, sd)
+				log.Debugf("responding for payload set %s", name)
+				respond.Json(w, respd.Value())
 				return
 			}
 
 			// if we get here, we have some request data
-			// POST vs GET are handled differently
-			switch m {
-			case http.MethodPost:
-				// check the body
-				rb, err := ioutil.ReadAll(r.Body)
-				if err != nil {
-					respond.Error(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-
+			// of which a GET will have query params where most others will use the request body
+			switch r.Method {
+			case http.MethodPost, http.MethodPut:
 				// force a cleanup on the request body to match the file data
 				var i interface{}
-				if err := json.Unmarshal(rb, &i); err != nil {
+				if err := json.Unmarshal(reqb, &i); err != nil {
 					respond.Error(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 
-				rb, err = json.Marshal(i)
-				if err := json.Unmarshal(rb, &i); err != nil {
-					respond.Error(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-
-				reqd, err := data(stub.Get("request.type").String(), stub.Get("request.data").String())
+				reqb, err = json.Marshal(i)
 				if err != nil {
 					respond.Error(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 
-				out, err := json.Marshal(reqd)
+				// marshal instead of using .String() to ensure the formats are consistent
+				dat, err := json.Marshal(reqd.Value())
 				if err != nil {
 					respond.Error(w, http.StatusInternalServerError, err.Error())
 					return
 				}
 
-				if string(out) != string(rb) {
+				if string(dat) != string(reqb) {
 					continue
 				}
 
-				// TODO: handle `type == "data.empty"`
+				log.Debugf("responding for payload set %s", name)
 
-				sd, err := data(stub.Get("response.type").String(), stub.Get("response.data").String())
-				if err != nil {
-					respond.Error(w, http.StatusInternalServerError, err.Error())
+				// this should handle something like a create request via POST or PUT
+				if stub.Get("response.type").String() == "data.empty" {
+					respond.With(w, int(respd.Get("code").Int()), respd.Get("content-type").String(), "")
 					return
 				}
 
-				log.Debugf("responding for data set %s", stub.Get("name").String())
-				respond.Json(w, sd)
+				respond.Json(w, respd.Value())
 				return
 
 			case http.MethodGet:
-				// check the URL params
+				// convert the request payload to query params
 				params := &url.Values{}
 				reqd.ForEach(func(k, v gjson.Result) bool {
 					params.Add(k.String(), v.String())
 					return true
 				})
 
-				if params.Encode() != r.URL.Query().Encode() {
+				// this tells us it's not the same request so no need to proceed
+				if params.Encode() != qparams.Encode() {
 					continue
 				}
 
-				sd, err := data(stub.Get("response.type").String(), stub.Get("response.data").String())
-				if err != nil {
-					respond.Error(w, http.StatusInternalServerError, err.Error())
-					return
-				}
-
-				log.Debugf("responding for data set %s", stub.Get("name").String())
-				respond.Json(w, sd)
+				log.Debugf("responding for payload set %s", name)
+				respond.Json(w, respd.Value())
 				return
 
 			default:
@@ -165,28 +137,36 @@ func handler(d, f string) http.HandlerFunc {
 }
 
 func LoadRoutes(mux *http.ServeMux, dir string) (*http.ServeMux, error) {
+	log.Debugf("processing files for dir %s", dir)
+
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
 		return mux, errors.Wrapf(err, "unable to read in %s", dir)
 	}
 
+	// pick up multiple JSON files in the configured directory
+	// NOTE: not handling nested directories or non-JSON files at this time
 	for _, f := range files {
-		if f.IsDir() || filepath.Ext(f.Name()) != "json" {
+		if f.IsDir() || strings.ToLower(filepath.Ext(f.Name())) != ".json" {
 			continue
 		}
 
-		in, err := ioutil.ReadFile(filepath.Join(dir, f.Name()))
+		// convert to fully qualified path
+		fqp := filepath.Join(dir, f.Name())
+		log.Debugf("processing file %s", fqp)
+
+		in, err := ioutil.ReadFile(fqp)
 		if err != nil {
-			log.Error(err)
-			continue
+			return mux, errors.Wrapf(err, "unable to read in file %s", fqp)
 		}
 
 		route := gjson.Get(string(in), "route").String()
 		if len(route) < 1 {
-			log.Errorf("invalid route for file %s", filepath.Join(dir, f.Name()))
+			return mux, errors.Errorf("invalid route in file %s", fqp)
 			continue
 		}
 
+		log.Debugf("adding handlers for route %s", route)
 		mux.HandleFunc(route, handler(dir, f.Name()))
 	}
 

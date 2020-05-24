@@ -5,14 +5,14 @@
       "name": "sample-0",
       "request": {
         "method": "GET",
-        "data": {
+        "payload": {
           "id": 1,
           "ssn": "280-74-4151"
         }
       },
       "response": {
         "type": "data.object",
-        "data": {
+        "payload": {
           "id": 1,
           "first_name": "Alleyn",
           "last_name": "Caven",
@@ -28,14 +28,14 @@
         "method": "POST",
         "content-type": "application/json",
         "type": "data.object",
-        "data": {
+        "payload": {
           "id": 1,
           "ssn": "280-74-4151"
         }
       },
       "response": {
         "type": "data.object",
-        "data": {
+        "payload": {
           "id": 1,
           "first_name": "Alleyn",
           "last_name": "Caven",
@@ -51,7 +51,7 @@
         "method": "POST",
         "content-type": "application/json",
         "type": "data.array",
-        "data": [
+        "payload": [
           {
             "id": 1,
             "first_name": "Alleyn",
@@ -72,8 +72,10 @@
       },
       "response": {
         "type": "data.empty",
-        "code": 201,
-        "data": {}
+        "payload": {
+          "code": 201,
+          "content-type": "text/plain; charset=us-ascii"
+        }
       }
     },
     {
@@ -84,7 +86,7 @@
       },
       "response": {
         "type": "data.array",
-        "data": [
+        "payload": [
           {
             "id": 1,
             "first_name": "Alleyn",
@@ -136,9 +138,42 @@
       },
       "response": {
         "type": "error",
-        "error": {
+        "payload": {
           "code": 405,
           "message": "method not allowed"
+        }
+      }
+    },
+    {
+      "name": "sample-5",
+      "request": {
+        "method": "PUT",
+        "content-type": "application/json",
+        "type": "data.array",
+        "payload": [
+          {
+            "id": 1,
+            "first_name": "Alleyn",
+            "last_name": "Caven",
+            "email": "acaven0@tinypic.com",
+            "gender": "Male",
+            "ssn": "280-74-4151"
+          },
+          {
+            "id": 2,
+            "first_name": "Christal",
+            "last_name": "Pieche",
+            "email": "cpieche1@cmu.edu",
+            "gender": "Female",
+            "ssn": "239-77-2514"
+          }
+        ]
+      },
+      "response": {
+        "type": "data.empty",
+        "payload": {
+          "code": 201,
+          "content-type": "text/plain; charset=us-ascii"
         }
       }
     }

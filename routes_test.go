@@ -24,7 +24,28 @@ func TestHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	tests := map[string]func(t *testing.T){
-		"error": func(t *testing.T) {
+		"PUT/some-params/empty-response": func(t *testing.T) {
+			ts := httptest.NewServer(handler(dir, file))
+			defer ts.Close()
+
+			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-5")`)
+
+			req, err := http.NewRequest(http.MethodPut, ts.URL, strings.NewReader(stub.Get(`request.payload`).String()))
+			require.NoError(t, err)
+
+			req.Header.Set("Content-Type", stub.Get(`request.content-type`).String())
+
+			res, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+
+			require.Equal(t, int(stub.Get(`response.payload.code`).Int()), res.StatusCode)
+
+			b, err := ioutil.ReadAll(res.Body)
+			require.NoError(t, res.Body.Close())
+			require.NoError(t, err)
+			require.Empty(t, strings.TrimSpace(string(b)))
+		},
+		"DELETE/error": func(t *testing.T) {
 			ts := httptest.NewServer(handler(dir, file))
 			defer ts.Close()
 
@@ -41,10 +62,10 @@ func TestHandler(t *testing.T) {
 
 			del := gjson.Get(string(stubs), `stubs.#(name=="sample-4")`)
 
-			require.Equal(t, int(del.Get("response.error.code").Int()), res.StatusCode)
-			require.Equal(t, del.Get("response.error.message").String(), strings.TrimSpace(string(b)))
+			require.Equal(t, int(del.Get("response.payload.code").Int()), res.StatusCode)
+			require.Equal(t, del.Get("response.payload.message").String(), strings.TrimSpace(string(b)))
 		},
-		"get/empty-params": func(t *testing.T) {
+		"GET/empty-params": func(t *testing.T) {
 			ts := httptest.NewServer(handler(dir, file))
 			defer ts.Close()
 
@@ -56,52 +77,59 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, err)
 
 			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-3")`)
-			require.False(t, stub.Get(`request.data`).Exists())
+			require.False(t, stub.Get(`request.payload`).Exists())
 			require.Equal(t, "data.array", stub.Get(`response.type`).String())
 
-			a := make([]interface{}, 0)
-			require.NoError(t, json.Unmarshal([]byte(stub.Get(`response.data`).String()), &a))
-
-			out, err := json.Marshal(a)
+			out, err := json.Marshal(stub.Get(`response.payload`).Value())
 			require.NoError(t, err)
 
 			require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
 		},
-		"post/created": func(t *testing.T) {
+		"POST/some-params/empty-response": func(t *testing.T) {
+			ts := httptest.NewServer(handler(dir, file))
+			defer ts.Close()
 
+			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-2")`)
+
+			res, err := http.Post(ts.URL, stub.Get(`request.content-type`).String(), strings.NewReader(stub.Get(`request.payload`).String()))
+			require.NoError(t, err)
+
+			require.Equal(t, int(stub.Get(`response.payload.code`).Int()), res.StatusCode)
+
+			b, err := ioutil.ReadAll(res.Body)
+			require.NoError(t, res.Body.Close())
+			require.NoError(t, err)
+			require.Empty(t, strings.TrimSpace(string(b)))
 		},
-		"post/some-params": func(t *testing.T) {
+		"POST/some-params": func(t *testing.T) {
 			ts := httptest.NewServer(handler(dir, file))
 			defer ts.Close()
 
 			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-1")`)
 
-			res, err := http.Post(ts.URL, stub.Get(`request.content-type`).String(), strings.NewReader(stub.Get(`request.data`).String()))
+			res, err := http.Post(ts.URL, stub.Get(`request.content-type`).String(), strings.NewReader(stub.Get(`request.payload`).String()))
 			require.NoError(t, err)
 
 			b, err := ioutil.ReadAll(res.Body)
 			require.NoError(t, res.Body.Close())
 			require.NoError(t, err)
 
-			require.True(t, stub.Get(`request.data`).Exists())
+			require.True(t, stub.Get(`request.payload`).Exists())
 			require.Equal(t, "data.object", stub.Get(`response.type`).String())
 
-			m := map[string]interface{}{}
-			require.NoError(t, json.Unmarshal([]byte(stub.Get(`response.data`).String()), &m))
-
-			out, err := json.Marshal(m)
+			out, err := json.Marshal(stub.Get(`response.payload`).Value())
 			require.NoError(t, err)
 
 			require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
 		},
 
-		"get/some-params": func(t *testing.T) {
+		"GET/some-params": func(t *testing.T) {
 			ts := httptest.NewServer(handler(dir, file))
 			defer ts.Close()
 
 			u := fmt.Sprintf("%s?", ts.URL)
 			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-0")`)
-			stub.Get(`request.data`).ForEach(func(k, v gjson.Result) bool {
+			stub.Get(`request.payload`).ForEach(func(k, v gjson.Result) bool {
 				u = fmt.Sprintf("%s%s=%s&", u, k, v)
 				return true
 			})
@@ -113,13 +141,10 @@ func TestHandler(t *testing.T) {
 			require.NoError(t, res.Body.Close())
 			require.NoError(t, err)
 
-			require.True(t, stub.Get(`request.data`).Exists())
+			require.True(t, stub.Get(`request.payload`).Exists())
 			require.Equal(t, "data.object", stub.Get(`response.type`).String())
 
-			m := map[string]interface{}{}
-			require.NoError(t, json.Unmarshal([]byte(stub.Get(`response.data`).String()), &m))
-
-			out, err := json.Marshal(m)
+			out, err := json.Marshal(stub.Get(`response.payload`).Value())
 			require.NoError(t, err)
 
 			require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
@@ -132,5 +157,27 @@ func TestHandler(t *testing.T) {
 }
 
 func TestLoadRoutes(t *testing.T) {
+	stubs, err := ioutil.ReadFile(filepath.Join(dir, file))
+	require.NoError(t, err)
 
+	mux, err := LoadRoutes(http.NewServeMux(), dir)
+	require.NoError(t, err)
+
+	ts := httptest.NewServer(mux)
+
+	res, err := http.Get(fmt.Sprintf("%s%s", ts.URL, gjson.Get(string(stubs), "route").String()))
+	require.NoError(t, err)
+
+	b, err := ioutil.ReadAll(res.Body)
+	require.NoError(t, res.Body.Close())
+	require.NoError(t, err)
+
+	stub := gjson.Get(string(stubs), `stubs.#(name=="sample-3")`)
+	require.False(t, stub.Get(`request.payload`).Exists())
+	require.Equal(t, "data.array", stub.Get(`response.type`).String())
+
+	out, err := json.Marshal(stub.Get(`response.payload`).Value())
+	require.NoError(t, err)
+
+	require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
 }
