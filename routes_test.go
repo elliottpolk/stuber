@@ -3,9 +3,11 @@ package stuber
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,7 +25,7 @@ func TestHandler(t *testing.T) {
 	stubs, err := ioutil.ReadFile(filepath.Join(dir, file))
 	require.NoError(t, err)
 
-	tests := map[string]func(t *testing.T){
+	tests := map[string]func(*testing.T){
 		"PUT/some-params/empty-response": func(t *testing.T) {
 			ts := httptest.NewServer(handler(dir, file))
 			defer ts.Close()
@@ -156,28 +158,73 @@ func TestHandler(t *testing.T) {
 	}
 }
 
+func duplicateTestData(t *testing.T) string {
+	td, err := ioutil.TempDir(".", "")
+	require.NoError(t, err)
+
+	tf1, err := ioutil.TempFile(td, "sample_duplicate.*.json")
+	require.NoError(t, err)
+	defer tf1.Close()
+
+	tf2, err := ioutil.TempFile(td, "sample_duplicate.*.json")
+	require.NoError(t, err)
+	defer tf2.Close()
+
+	of, err := os.Open(filepath.Join(dir, file))
+	require.NoError(t, err)
+	defer of.Close()
+
+	_, err = io.Copy(tf1, of)
+	require.NoError(t, err)
+	require.NoError(t, tf1.Sync())
+
+	_, err = io.Copy(tf2, of)
+	require.NoError(t, err)
+	require.NoError(t, tf2.Sync())
+
+	t.Cleanup(func() {
+		require.NoError(t, os.RemoveAll(td))
+	})
+
+	return td
+}
+
 func TestLoadRoutes(t *testing.T) {
 	stubs, err := ioutil.ReadFile(filepath.Join(dir, file))
 	require.NoError(t, err)
 
-	mux, err := LoadRoutes(http.NewServeMux(), dir)
-	require.NoError(t, err)
+	tests := map[string]func(*testing.T){
+		"POSITIVE/basic-load": func(t *testing.T) {
+			mux, err := LoadRoutes(http.NewServeMux(), dir)
+			require.NoError(t, err)
 
-	ts := httptest.NewServer(mux)
+			ts := httptest.NewServer(mux)
 
-	res, err := http.Get(fmt.Sprintf("%s%s", ts.URL, gjson.Get(string(stubs), "route").String()))
-	require.NoError(t, err)
+			res, err := http.Get(fmt.Sprintf("%s%s", ts.URL, gjson.Get(string(stubs), "route").String()))
+			require.NoError(t, err)
 
-	b, err := ioutil.ReadAll(res.Body)
-	require.NoError(t, res.Body.Close())
-	require.NoError(t, err)
+			b, err := ioutil.ReadAll(res.Body)
+			require.NoError(t, res.Body.Close())
+			require.NoError(t, err)
 
-	stub := gjson.Get(string(stubs), `stubs.#(name=="sample-3")`)
-	require.False(t, stub.Get(`request.payload`).Exists())
-	require.Equal(t, "data.array", stub.Get(`response.type`).String())
+			stub := gjson.Get(string(stubs), `stubs.#(name=="sample-3")`)
+			require.False(t, stub.Get(`request.payload`).Exists())
+			require.Equal(t, "data.array", stub.Get(`response.type`).String())
 
-	out, err := json.Marshal(stub.Get(`response.payload`).Value())
-	require.NoError(t, err)
+			out, err := json.Marshal(stub.Get(`response.payload`).Value())
+			require.NoError(t, err)
 
-	require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
+			require.Equal(t, strings.TrimSpace(string(out)), strings.TrimSpace(string(b)))
+		},
+		"NEGATIVE/duplicate-routes": func(t *testing.T) {
+			td := duplicateTestData(t)
+
+			_, err := LoadRoutes(http.NewServeMux(), td)
+			require.Error(t, err)
+		},
+	}
+
+	for n, test := range tests {
+		t.Run(n, test)
+	}
 }
